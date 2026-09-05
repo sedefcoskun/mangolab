@@ -1,129 +1,137 @@
-# Case study — Junior Software Engineer at mangolab
+# MangoLab FX Conversion Service
 
-Two small tasks, **about two and a half hours in total.** Please do not spend
-your weekend on this. If you run out of time, stop and write down what you would
-have done next — that answer counts too.
+Small FastAPI service for converting currency amounts using ECB exchange rates through Frankfurter.
 
-Use Claude Code, Cursor, Copilot — whatever you normally use. That is how we work
-every day, and we would rather see you use it well than watch you avoid it. The
-only thing we ask is that you know your own code.
+## Run
 
-**Start by clicking "Use this template"** to create your own repository, then
-work there.
+Requirements: Python 3.11+
 
----
+Install dependencies:
 
-## Part A — build (about 90 minutes)
-
-A small HTTP service — Python + FastAPI preferred, TypeScript is fine — with one
-endpoint an AI agent could call as a tool:
-
-```
-GET /tools/convert?amount=250&from=EUR&to=TRY&date=2026-08-28
+```bash
+pip install -r requirements.txt
 ```
 
-It answers using the public [Frankfurter API](https://frankfurter.dev) —
-European Central Bank rates, no API key, no signup.
+Start the service:
 
-### Three things are fixed, so that we can run every submission the same way
-
-| | |
-|---|---|
-| Upstream URL | from the `FX_UPSTREAM_BASE` environment variable, defaulting to `https://api.frankfurter.dev`. **Nothing may hardcode the real host** — we point this at a fake upstream when reviewing. |
-| Port | from the `PORT` environment variable, default `8080` |
-| Scripts | `./run.sh` starts the service, `./test.sh` runs the tests. Both are in this template, unimplemented. |
-
-### The response
-
-On success, 200 with:
-
-```json
-{
-  "amount": 250,
-  "from": "EUR",
-  "to": "TRY",
-  "rate": 47.1234,
-  "result": 11780.85,
-  "rate_date": "2026-08-28",
-  "asked_date": "2026-08-28",
-  "source": "ECB via frankfurter.dev"
-}
+```bash
+./run.sh
 ```
 
-`rate_date` is **the date the rate you used actually belongs to.** `asked_date`
-is what the caller asked for. They are not always the same, and that difference
-is the point of this task.
+The default port is `8080`. It can be changed with:
 
-On failure, a non-2xx status and:
-
-```json
-{ "error": "<short_machine_code>", "message": "<a sentence a person could read>" }
+```bash
+PORT=9000 ./run.sh
 ```
 
-List your error codes in your README.
+## Endpoint
 
-### The part that matters
+```text
+GET /tools/convert
+```
 
-The caller is a language model talking to a paying customer, so **a wrong number
-is worse than no number.** Decide — and implement — what happens when:
+Example:
 
-- the ECB published no rate for the date asked (weekends, holidays);
-- the date is in the future, or before the series starts;
-- the currency code does not exist, or `from` and `to` are the same;
-- the upstream is slow, returns 500, or returns something that is not JSON;
-- `amount` is missing, zero, negative, or has ten decimal places.
+```text
+/tools/convert?amount=250&from=EUR&to=TRY&date=2026-08-28
+```
 
-Your endpoint must never invent a rate, and must never present a rate as
-belonging to a date it does not belong to. Note that the upstream itself tells
-you which date its rates are from — read it. If you choose to answer with an
-earlier published rate, the response has to make that visible, because the model
-has to be able to tell the customer which day the number is from.
+The response contains:
 
-### Also required
+* `amount` — requested amount
+* `from` — source currency
+* `to` — target currency
+* `rate` — exchange rate used
+* `result` — converted amount
+* `rate_date` — date the returned rate actually belongs to
+* `asked_date` — date requested by the caller
+* `source` — data source
 
-- **Tests that pass with no network at all** — fake the upstream. We run
-  `./test.sh` with `FX_UPSTREAM_BASE` pointing at a closed port.
-- A README of your own we can follow in under a minute: how to run it, how to
-  run the tests, your error codes, and what your endpoint does in each of the
-  cases above.
-- A repeat of the same question should not re-ask the upstream.
-- `NOTES.md`, one page. The skeleton is in this repo.
+`rate_date` is taken directly from the upstream response. This is important because the requested date may be a weekend or holiday, in which case the upstream can return the latest available rate. The service does not pretend that an older rate belongs to the requested date.
 
-### Not required, not scored
+## Configuration
 
-Auth, a database, a UI, a Dockerfile, CI, deployment, more endpoints. Adding them
-will not help you; a smaller thing done carefully will.
+The upstream base URL is configured with:
 
----
+```text
+FX_UPSTREAM_BASE
+```
 
-## Part B — review (about 45 minutes)
+Default:
 
-`tool.py` in this repository is a working version of the same service, written
-quickly with an AI assistant. It runs. **Review it as if it were going live
-tomorrow for a customer who pays us.**
+```text
+https://api.frankfurter.dev
+```
 
-Fill in `REVIEW.md`, one page:
+The application does not hardcode the upstream host in request logic. This allows tests to point the service at a fake upstream.
 
-- what is wrong, and what it does to a **customer** — not to a linter;
-- how you would verify each finding;
-- your findings **ranked**, and which single one you would fix before shipping
-  tonight.
+The service port is configured with:
 
-Fewer findings, ranked and explained, beat a long list. If something looks
-suspicious but is actually fine, saying so is worth as much as finding a real
-defect.
+```text
+PORT
+```
 
----
+Default:
 
-## Submitting
+```text
+8080
+```
 
-Reply to our email with a link to your repository. Commit in small steps — the
-history is part of what we read. Five days is plenty; if you need more, just say
-so.
+## Tests
 
-Any question about this brief, ask. An unclear requirement is our fault, not a
-test.
+Run:
 
----
+```bash
+./test.sh
+```
 
-<sub>mangolab — Mango Yazılım Teknolojileri Ltd. Şti. · [mangolab.ai/careers](https://mangolab.ai/careers)</sub>
+or:
+
+```bash
+python -m pytest -q
+```
+
+The tests do not require network access. The upstream HTTP client is replaced with a fake client.
+
+The test suite covers successful conversion, caching, date handling, input validation, unavailable rates, upstream errors, and invalid upstream responses.
+
+## Error codes
+
+| HTTP | Error code             | Meaning                                                         |
+| ---- | ---------------------- | --------------------------------------------------------------- |
+| 400  | `missing_amount`       | Amount was not provided                                         |
+| 400  | `invalid_amount`       | Amount is invalid, has too many decimal places, or is too large |
+| 400  | `missing_currency`     | A currency parameter is missing                                 |
+| 400  | `invalid_currency`     | Currency code is not three letters                              |
+| 400  | `same_currency`        | Source and target currencies are identical                      |
+| 400  | `missing_date`         | Date was not provided                                           |
+| 400  | `invalid_date`         | Date is not valid `YYYY-MM-DD`                                  |
+| 400  | `future_date`          | Requested date is in the future                                 |
+| 404  | `rate_not_available`   | No rate is available for the requested date/currency pair       |
+| 502  | `upstream_timeout`     | Upstream did not respond within the timeout                     |
+| 502  | `upstream_unavailable` | Upstream could not be reached                                   |
+| 502  | `upstream_error`       | Upstream returned an HTTP error                                 |
+| 502  | `invalid_upstream`     | Upstream returned invalid or unusable data                      |
+
+## Caching
+
+Successful rate responses are cached by:
+
+```text
+(from, to, asked_date)
+```
+
+Repeating the same question does not call the upstream again.
+
+## Project structure
+
+```text
+app.py                 FastAPI service
+tests/test_app.py      Automated tests
+run.sh                 Service startup script
+test.sh                Test runner
+requirements.txt       Python dependencies
+NOTES.md               Implementation notes
+REVIEW.md              Part B review
+tool.py                Part B review target
+```
